@@ -1,0 +1,36 @@
+#!/usr/bin/env python
+
+import numpy as np
+import pandas as pd
+import altair as alt
+import sklearn.cross_decomposition as cd
+
+alt.renderers.enable('altair_viewer')
+
+# Sample X and Y
+N = 150
+Sigma = np.array([[1, 1 / np.sqrt(2)],
+                  [1 / np.sqrt(2), .8]])
+X = np.random.multivariate_normal(np.zeros(2), Sigma, size=N)
+x0, x1 = X.T
+y = x0 - x1
+
+# Perform PLS
+pls = cd.PLSRegression().fit(X=X, Y=y)
+pls.n_iter_
+x_weights = pd.DataFrame(dict(x0=[0, pls.x_weights_[0, 0], 0, pls.x_weights_[0, 1]],
+                              x1=[0, pls.x_weights_[1, 0], 0, pls.x_weights_[0, 1]],
+                              iteration=[0, 0, 1, 1]))
+weights_chart = (
+    alt.Chart(data=x_weights)
+    .mark_line()
+    .encode(x='x0', y='x1', color='iteration:N'))
+
+data = pd.DataFrame(dict(x0=x0, x1=x1, y=y))
+data
+chart = (
+    alt.Chart(data=data)
+    .mark_circle(size=60)
+    .encode(x='x0', y='x1', color='y'))
+
+(chart + weights_chart).display()

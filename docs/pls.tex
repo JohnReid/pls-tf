@@ -1,0 +1,49 @@
+\documentclass{article}
+\usepackage{hyperref}
+\usepackage{amsmath}
+
+\title{Partial least squares}
+\author{John Reid}
+
+\begin{document}
+
+\section{Partial least squares model}
+
+The partial least
+squares model is presented as a latent variable model in Kevin Murphy's 2012
+book \href{https://probml.github.io/pml-book/}{Machine Learning: A
+Probabilistic Perspective}.
+
+\begin{eqnarray}
+  p(z) &=& \mathcal{N}(z|0, I) \\
+  p(v|z, W, \mu, \sigma) &=& \mathcal{N}(v|W z + \mu, \sigma^2 I)
+\end{eqnarray}
+where
+\begin{eqnarray}
+  W &=& \begin{pmatrix}
+      W_y & 0 \\
+      W_x & B_x \\
+    \end{pmatrix} \\
+  z &=& (z^s; z^x) \\
+  v &=& (y; x) \\
+  \mu &=& (\mu_y; \mu_x).
+\end{eqnarray}
+Marginalising $z$ gives
+\begin{eqnarray}
+  p(v|W, \mu, \sigma)
+  &=& \int \mathcal{N}(v|W z + \mu, \sigma^2 I) \mathcal{N}(z|0, I)\,dz \\
+  &=& \mathcal{N}(v|\mu, W W^T + \sigma^2 I)
+\end{eqnarray}
+Conditioning on $x$ gives
+\begin{eqnarray}
+  p(y|x) &=& \mathcal{N}(y|\mu_y + W_y W_x^T C (x - \mu_x),
+                           W_y W_y^T - W_y W_x^T C W_x W_y^T)
+\end{eqnarray}
+where $C={(B_x B_x^T + W_x W_x^T)}^{-1}$.
+
+Suppose we now obtain $N$ independent observations from the model
+\begin{eqnarray}
+  v_n = (y_n; x_n),\quad 1 \le n \le N.
+\end{eqnarray}
+We wish to estimate $W, \mu \text{ and } \sigma$.
+\end{document}

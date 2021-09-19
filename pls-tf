@@ -3,6 +3,7 @@
 """Implementation of partial least squares model (section 12.5.2 in Kevin Murphy's PML 2012 book)."""
 
 from pathlib import Path
+import io
 import math
 import datetime
 import tensorflow as tf
@@ -104,6 +105,63 @@ current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 log_dir = Path('logs') / current_time
 summary_writer = tf.summary.create_file_writer(str(log_dir))
 
+
+def means_figure():
+    """Figure comparing estimated means to true means."""
+    fig, axes = plt.subplots(nrows=2, figsize=(12, 6))
+    sns.heatmap(tf.stack([mu_x_true, mu_x]), ax=axes[0], cmap='PuOr', norm=divnorm)
+    sns.heatmap(tf.stack([mu_y_true, mu_y]), ax=axes[1], cmap='PuOr', norm=divnorm)
+    axes[0].set_title('mu_x')
+    axes[1].set_title('mu_y')
+    return fig
+
+
+def singular_value_figure():
+    """Plot the singular values of each of Wy, Wx, Bx both for the true values and the estimated values."""
+
+    Wy_singular_values = tf.stack([la.svd(Wy, compute_uv=False), la.svd(Wy_true, compute_uv=False)])
+    Wx_singular_values = tf.stack([la.svd(Wx, compute_uv=False), la.svd(Wx_true, compute_uv=False)])
+    Bx_singular_values = tf.stack([la.svd(Bx, compute_uv=False), la.svd(Bx_true, compute_uv=False)])
+
+    fig, axes = plt.subplots(nrows=3, figsize=(12, 6))
+    sns.heatmap(Wy_singular_values, ax=axes[0], cmap='PuOr', norm=divnorm)
+    sns.heatmap(Wx_singular_values, ax=axes[1], cmap='PuOr', norm=divnorm)
+    sns.heatmap(Bx_singular_values, ax=axes[2], cmap='PuOr', norm=divnorm)
+    for ax in axes:
+        ax.set_yticks([.5, 1.5])
+        ax.set_yticklabels(['Estimated', 'True'])
+    axes[0].set_title('Wy')
+    axes[1].set_title('Wx')
+    axes[2].set_title('Bx')
+    return fig
+
+
+def plot_to_image(figure):
+    """Converts the matplotlib plot specified by 'figure' to a PNG image and
+    returns it."""
+    # Save the plot to a PNG in memory.
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    # Convert PNG buffer to TF image
+    image = tf.image.decode_png(buf.getvalue(), channels=4)
+    # Add the batch dimension
+    image = tf.expand_dims(image, 0)
+    return image
+
+
+def log_singular_values(iteration):
+    fig = singular_value_figure()
+    tf.summary.image("Transform singular values", plot_to_image(fig), step=iteration)
+    plt.close(fig)
+
+
+def log_means(iteration):
+    fig = means_figure()
+    tf.summary.image("Means", plot_to_image(fig), step=iteration)
+    plt.close(fig)
+
+
 optimizer = keras.optimizers.SGD(learning_rate=lr_schedule)
 iterations = 50
 for iteration in range(iterations):
@@ -156,6 +214,9 @@ for iteration in range(iterations):
         tf.summary.scalar('joint/total', joint, step=iteration)
         tf.summary.scalar('joint/lp_sum', lp_sum, step=iteration)
         tf.summary.scalar('joint/sigma_prior', sigma_prior, step=iteration)
+        log_singular_values(iteration)
+        log_means(iteration)
+        summary_writer.flush()
 
 # Examine matrix parameters
 divnorm = colors.TwoSlopeNorm(vmin=-5., vcenter=0., vmax=10)
@@ -186,12 +247,4 @@ sns.heatmap(Wx_true, ax=axes[1, 0], cmap='PuOr', norm=divnorm)
 sns.heatmap(Wx, ax=axes[1, 1], cmap='PuOr', norm=divnorm)
 sns.heatmap(Wy_true, ax=axes[2, 0], cmap='PuOr', norm=divnorm)
 sns.heatmap(Wy, ax=axes[2, 1], cmap='PuOr', norm=divnorm)
-plt.show()
-
-# Examine vector parameters
-fig, axes = plt.subplots(nrows=2, figsize=(12, 6))
-sns.heatmap(tf.stack([mu_x_true, mu_x]), ax=axes[0], cmap='PuOr', norm=divnorm)
-sns.heatmap(tf.stack([mu_y_true, mu_y]), ax=axes[1], cmap='PuOr', norm=divnorm)
-axes[0].set_title('mu_x')
-axes[1].set_title('mu_y')
 plt.show()

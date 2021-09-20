@@ -6,111 +6,37 @@ from pathlib import Path
 import io
 import math
 import datetime
+import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 import tensorflow_probability as tfp
 import matplotlib.pyplot as plt
 from matplotlib import colors
 import seaborn as sns
-plt.ion()
-plt.close('all')
 la = tf.linalg
 tf.__version__
 tfp.__version__
 tf.random.set_seed(37)
+_std_normal = tfp.distributions.Normal(loc=0, scale=1.)
+plt.ion()
+plt.close('all')
+divnorm = colors.TwoSlopeNorm(vmin=-5., vcenter=0., vmax=10)
 
 
-# Dimensions
-dx = 19   # Dimension of xs
-dy = 5    # Dimension of ys
-dzs = 5   # Dimension of shared z
-dzx = 14  # Dimension of z for xs
-N = 100
-sigma_true = .3
-
-# Sample ground truth
-std_normal = tfp.distributions.Normal(loc=0, scale=1.)
-zx_true = std_normal.sample([N, dzx])
-zs_true = std_normal.sample([N, dzs])
-z_true = tf.concat([zx_true, zs_true], axis=1)
-mu_y_true = std_normal.sample([dy])
-mu_x_true = std_normal.sample([dx])
-Wy_true = std_normal.sample([dy, dzs]) / math.sqrt(dzs)
-Wx_true = std_normal.sample([dx, dzs]) / math.sqrt(dzs) / math.sqrt(2)
-Bx_true = std_normal.sample([dx, dzx]) / math.sqrt(dzx) / math.sqrt(2)
-p_y_given_z = tfp.distributions.MultivariateNormalDiag(loc=mu_y_true
-                                                           + la.matvec(Wy_true, zs_true),
-                                                       scale_identity_multiplier=sigma_true)
-y_true = p_y_given_z.sample()
-p_x_given_z = tfp.distributions.MultivariateNormalDiag(loc=mu_x_true
-                                                           + la.matvec(Wx_true, zs_true)
-                                                           + la.matvec(Bx_true, zx_true),
-                                                       scale_identity_multiplier=sigma_true)
-x_true = p_x_given_z.sample()
-
-# Check distribution of ground truth
-tf.math.reduce_std(z_true, axis=0)
-tf.math.reduce_std(y_true, axis=0)
-tf.math.reduce_std(x_true, axis=0)
-
-# Cross-covariance of X and Y
-Xbar = x_true / tf.reduce_mean(x_true, axis=0)
-Ybar = y_true / tf.reduce_mean(y_true, axis=0)
-XTY = tf.matmul(Xbar, Ybar, transpose_a=True)
-s, u, v = la.svd(XTY)
-tf.reduce_max(tf.abs(XTY - tf.matmul(u, tf.matmul(tf.linalg.diag(s), v, adjoint_b=True))))
-s.shape
-u.shape
-v.shape
-
-# Parameterise
-#
-# Noise
-# sigma = tf.Variable(tf.abs(std_normal.sample([1])), name='sigma')
-sigma = tf.Variable([sigma_true], name='sigma')
-# Data means
-mu_x = tf.Variable(tf.reduce_mean(x_true, axis=0))
-mu_y = tf.Variable(tf.reduce_mean(y_true, axis=0))
-# Maps from latent spaces
-Bx = tf.Variable(std_normal.sample([dx, dzx]))
-Wx = tf.Variable(std_normal.sample([dx, dzs]))
-Wy = tf.Variable(std_normal.sample([dy, dzs]))
-# initialise based on cross-covariance
-# Wx = Wx[:, :min(dx, dy)].assign(u * tf.sqrt(s))
-# Wy = Wy[:, :min(dx, dy)].assign(v * tf.sqrt(s))
-# Keep all parameters together
-trainable_params = [
-    # sigma,
-    Bx,
-    Wx,
-    Wy,
-    mu_x,
-    mu_y]
-
-# Training loop
-#
-# Instantiate an optimizer.
-initial_learning_rate = 1e-3
-lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-    initial_learning_rate,
-    decay_steps=100,
-    decay_rate=0.96,
-    staircase=True)
-
-# Metrics
-# train_loss = tf.keras.metrics.Mean('train_loss', dtype=tf.float32)
-# train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('train_accuracy')
-
-current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-log_dir = Path('logs') / current_time
-summary_writer = tf.summary.create_file_writer(str(log_dir))
+def WyWxBx_figure():
+    Uhat = polar_decomposition(tf.transpose(pls_true.Wx), tf.transpose(model.Wx))
+    tf.transpose(pls_true.Wx) - tf.matmul(Uhat, model.Wx, transpose_b=True)
+    fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(12, 6))
+    sns.heatmap(pls_true.Wx, ax=axes[1, 0], cmap='PuOr', norm=divnorm)
+    sns.heatmap(tf.matmul(model.Wx, Uhat, transpose_b=True), ax=axes[1, 1], cmap='PuOr', norm=divnorm)
+    return fig
 
 
 def means_figure():
     """Figure comparing estimated means to true means."""
     fig, axes = plt.subplots(nrows=2, figsize=(12, 6))
-    sns.heatmap(tf.stack([mu_x_true, mu_x]), ax=axes[0], cmap='PuOr', norm=divnorm)
-    sns.heatmap(tf.stack([mu_y_true, mu_y]), ax=axes[1], cmap='PuOr', norm=divnorm)
+    sns.heatmap(tf.stack([pls_true.mu_x, model.mu_x]), ax=axes[0], cmap='PuOr', norm=divnorm)
+    sns.heatmap(tf.stack([pls_true.mu_y, model.mu_y]), ax=axes[1], cmap='PuOr', norm=divnorm)
     axes[0].set_title('mu_x')
     axes[1].set_title('mu_y')
     return fig
@@ -119,9 +45,9 @@ def means_figure():
 def singular_value_figure():
     """Plot the singular values of each of Wy, Wx, Bx both for the true values and the estimated values."""
 
-    Wy_singular_values = tf.stack([la.svd(Wy, compute_uv=False), la.svd(Wy_true, compute_uv=False)])
-    Wx_singular_values = tf.stack([la.svd(Wx, compute_uv=False), la.svd(Wx_true, compute_uv=False)])
-    Bx_singular_values = tf.stack([la.svd(Bx, compute_uv=False), la.svd(Bx_true, compute_uv=False)])
+    Wy_singular_values = tf.stack([la.svd(model.Wy, compute_uv=False), la.svd(pls_true.Wy, compute_uv=False)])
+    Wx_singular_values = tf.stack([la.svd(model.Wx, compute_uv=False), la.svd(pls_true.Wx, compute_uv=False)])
+    Bx_singular_values = tf.stack([la.svd(model.Bx, compute_uv=False), la.svd(pls_true.Bx, compute_uv=False)])
 
     fig, axes = plt.subplots(nrows=3, figsize=(12, 6))
     sns.heatmap(Wy_singular_values, ax=axes[0], cmap='PuOr', norm=divnorm)
@@ -150,16 +76,175 @@ def plot_to_image(figure):
     return image
 
 
-def log_singular_values(iteration):
-    fig = singular_value_figure()
-    tf.summary.image("Transform singular values", plot_to_image(fig), step=iteration)
+def log_figure(name, fig, iteration):
+    tf.summary.image(name, plot_to_image(fig), step=iteration)
     plt.close(fig)
 
 
-def log_means(iteration):
-    fig = means_figure()
-    tf.summary.image("Means", plot_to_image(fig), step=iteration)
-    plt.close(fig)
+def polar_decomposition(A, B):
+    """Find a unitary matrix that maps B as close to A as possible (in the
+    least squares sense).
+
+    Suppose a set of points B has been subjected to an unknown rotation and
+    then jittered by white Gaussian noise to give a new set of points A. What
+    is the most likely rotation? More generally, what unitary matrix minimizes
+    f(U) = tr((A − UB)′(A − UB))?
+
+    See Section 7 of Minka's [report on
+    matrices](https://tminka.github.io/papers/matrix/minka-matrix.pdf).
+    """
+    s, V, W = la.svd(la.matmul(B, A, transpose_b=True))
+    return la.matmul(W, V, transpose_b=True)
+
+
+class PLS:
+
+    def __init__(self, mu_y, mu_x, Wy, Wx, Bx, sigma):
+        self.mu_y = mu_y
+        self.mu_x = mu_x
+        self.Wy = Wy
+        self.Wx = Wx
+        self.Bx = Bx
+        self.sigma = sigma
+
+        self.assert_dimensions_consistent()
+
+    def assert_dimensions_consistent(self):
+        """Check consistency of parameter dimensions."""
+        assert self.mu_y.shape[-1] == self.dy
+        assert self.mu_x.shape[-1] == self.dx
+        assert self.Bx.shape[-2] == self.dx
+        assert self.Bx.shape[-1] == self.dzx
+        assert self.Wx.shape[-2] == self.dx
+        assert self.Wx.shape[-1] == self.dzs
+        assert self.Wy.shape[-2] == self.dy
+        assert self.Wy.shape[-1] == self.dzs
+
+    @staticmethod
+    def random_init(dx, dy, dzs, dzx):
+        return PLS(
+            mu_y=_std_normal.sample([dy]),
+            mu_x=_std_normal.sample([dx]),
+            Wy=_std_normal.sample([dy, dzs]) / math.sqrt(dzs),
+            Wx=_std_normal.sample([dx, dzs]) / math.sqrt(dzs) / math.sqrt(2),
+            Bx=_std_normal.sample([dx, dzx]) / math.sqrt(dzx) / math.sqrt(2),
+            sigma=tfp.distributions.LogNormal(loc=0, scale=1).sample())
+
+    @property
+    def dy(self):
+        """Size of y."""
+        return self.Wy.shape[-2]
+
+    @property
+    def dx(self):
+        """Size of x."""
+        return self.Wx.shape[-2]
+
+    @property
+    def dzs(self):
+        """Size of shared latent space."""
+        return self.Wy.shape[-1]
+
+    @property
+    def dzx(self):
+        """Size of latent space dedicated to variation of x."""
+        return self.Bx.shape[-1]
+
+    def sample_z(self, N):
+        zx = _std_normal.sample([N, self.dzx])
+        zs = _std_normal.sample([N, self.dzs])
+        return zs, zx
+
+    def p_y_given_z(self, zs, zx):
+        return tfp.distributions.MultivariateNormalDiag(
+            loc=self.mu_y + la.matvec(self.Wy, zs),
+            scale_identity_multiplier=self.sigma)
+
+    def p_x_given_z(self, zs, zx):
+        return tfp.distributions.MultivariateNormalDiag(
+            loc=self.mu_x + la.matvec(self.Wx, zs) + la.matvec(self.Bx, zx),
+            scale_identity_multiplier=self.sigma)
+
+    def p_y_given_x(self, x):
+        sigma2_Ix = self.sigma**2 * tf.eye(self.dx)
+        sigma2_Iy = self.sigma**2 * tf.eye(self.dy)
+        # Useful products
+        BxBxT = tf.matmul(self.Bx, self.Bx, transpose_b=True)
+        WxWxT = tf.matmul(self.Wx, self.Wx, transpose_b=True)
+        WxWyT = tf.matmul(self.Wx, self.Wy, transpose_b=True)
+        WyWyT = tf.matmul(self.Wy, self.Wy, transpose_b=True)
+        # Calculate terms for posterior mean and covariance
+        BxBxT_WxWxT_chol = la.cholesky(BxBxT + WxWxT + sigma2_Ix)
+        WxWyT_term = la.triangular_solve(BxBxT_WxWxT_chol, WxWyT)
+        x_mux_term = tf.squeeze(la.triangular_solve(BxBxT_WxWxT_chol,
+                                                    tf.expand_dims(x_true - self.mu_x, axis=-1)),
+                                axis=-1)
+        # Create posterior
+        likelihood_loc = self.mu_y + la.matvec(WxWyT_term, x_mux_term, transpose_a=True)
+        likelihood_cov = WyWyT + sigma2_Iy - la.matmul(WxWyT_term, WxWyT_term, transpose_a=True)
+        return tfp.distributions.MultivariateNormalTriL(loc=likelihood_loc,
+                                                        scale_tril=la.cholesky(likelihood_cov))
+
+
+# Sample ground truth
+N = 100
+pls_true = PLS.random_init(dx=7, dy=1, dzs=3, dzx=5)
+zs_true, zx_true = pls_true.sample_z(N=N)
+y_true = pls_true.p_y_given_z(zs_true, zx_true).sample()
+x_true = pls_true.p_x_given_z(zs_true, zx_true).sample()
+assert zs_true.shape == (N, pls_true.dzs)
+assert zx_true.shape == (N, pls_true.dzx)
+assert y_true.shape == (N, pls_true.dy)
+assert x_true.shape == (N, pls_true.dx)
+
+# Check distribution of ground truth
+tf.math.reduce_std(zs_true, axis=0)
+tf.math.reduce_std(zx_true, axis=0)
+tf.math.reduce_std(y_true, axis=0)
+tf.math.reduce_std(x_true, axis=0)
+
+# Parameterise
+#
+model = PLS(
+    # Means
+    mu_x = tf.Variable(tf.reduce_mean(x_true, axis=0)),
+    mu_y = tf.Variable(tf.reduce_mean(y_true, axis=0)),
+    # Data means
+    # Maps from latent spaces
+    Wy = tf.Variable(_std_normal.sample([pls_true.dy, pls_true.dzs])),
+    Wx = tf.Variable(_std_normal.sample([pls_true.dx, pls_true.dzs])),
+    Bx = tf.Variable(_std_normal.sample([pls_true.dx, pls_true.dzx])),
+    # Noise
+    # sigma = tf.Variable(tf.abs(_std_normal.sample([1])), name='sigma')
+    sigma = tf.Variable(pls_true.sigma, name='sigma'))
+# initialise based on cross-covariance
+# Keep all parameters together
+trainable_params = [
+    # model.sigma,
+    model.Bx,
+    model.Wx,
+    model.Wy,
+    model.mu_x,
+    model.mu_y]
+
+# Training loop
+#
+# Instantiate an optimizer.
+initial_learning_rate = 1e-2
+lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+    initial_learning_rate,
+    decay_steps=100,
+    decay_rate=0.96,
+    staircase=True)
+
+# Metrics
+# train_loss = tf.keras.metrics.Mean('train_loss', dtype=tf.float32)
+# train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('train_accuracy')
+
+current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+log_dir = Path('logs') / current_time
+summary_writer = tf.summary.create_file_writer(str(log_dir))
+
 
 
 optimizer = keras.optimizers.SGD(learning_rate=lr_schedule)
@@ -169,33 +254,12 @@ for iteration in range(iterations):
     # during the forward pass, which enables auto-differentiation.
     with tf.GradientTape() as tape:
 
-        # Run the forward pass of the layer.
-        # The operations that the layer applies
-        # to its inputs are going to be recorded
-        # on the GradientTape.
-
-        sigma2_Ix = la.diag(sigma**2 * tf.ones(dx))
-        sigma2_Iy = la.diag(sigma**2 * tf.ones(dy))
-        # Useful products
-        BxBxT = tf.matmul(Bx, Bx, transpose_b=True)
-        WxWxT = tf.matmul(Wx, Wx, transpose_b=True)
-        WxWyT = tf.matmul(Wx, Wy, transpose_b=True)
-        WyWyT = tf.matmul(Wy, Wy, transpose_b=True)
-        # Calculate terms for posterior mean and covariance
-        BxBxT_WxWxT_chol = la.cholesky(BxBxT + WxWxT + sigma2_Ix)
-        WxWyT_term = la.triangular_solve(BxBxT_WxWxT_chol, WxWyT)
-        x_mux_term = tf.squeeze(la.triangular_solve(BxBxT_WxWxT_chol, tf.expand_dims(x_true - mu_x, axis=-1)), axis=-1)
-        # Create posterior
-        likelihood_loc = mu_y + la.matvec(WxWyT_term, x_mux_term, transpose_a=True)
-        likelihood_cov = WyWyT + sigma2_Iy - la.matmul(WxWyT_term, WxWyT_term, transpose_a=True)
-        p_y_given_x = tfp.distributions.MultivariateNormalTriL(loc=likelihood_loc,
-                                                            scale_tril=la.cholesky(likelihood_cov))
         # Likelihood of y
-        lp = p_y_given_x.log_prob(y_true)
+        lp = model.p_y_given_x(x_true).log_prob(y_true)
         lp_sum = tf.reduce_sum(lp)
 
         # Parameter priors
-        sigma_prior = tf.squeeze(tfp.distributions.LogNormal(loc=0, scale=.25).log_prob(sigma))
+        sigma_prior = tf.squeeze(tfp.distributions.LogNormal(loc=0, scale=.25).log_prob(model.sigma))
 
         # Loss
         joint = lp_sum + sigma_prior
@@ -214,16 +278,16 @@ for iteration in range(iterations):
         tf.summary.scalar('joint/total', joint, step=iteration)
         tf.summary.scalar('joint/lp_sum', lp_sum, step=iteration)
         tf.summary.scalar('joint/sigma_prior', sigma_prior, step=iteration)
-        log_singular_values(iteration)
-        log_means(iteration)
+        log_figure('Transforms', WyWxBx_figure(), iteration)
+        log_figure('Transform singular values', singular_value_figure(), iteration)
+        log_figure('Means', means_figure(), iteration)
         summary_writer.flush()
 
 # Examine matrix parameters
-divnorm = colors.TwoSlopeNorm(vmin=-5., vcenter=0., vmax=10)
 fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
-sns.heatmap(tf.matmul(Bx_true, Bx, transpose_a=True), ax=axes[0], cmap='PuOr', norm=divnorm)
-sns.heatmap(tf.matmul(Wx_true, Wx, transpose_a=True), ax=axes[1], cmap='PuOr', norm=divnorm)
-sns.heatmap(tf.matmul(Wy_true, Wy, transpose_a=True), ax=axes[2], cmap='PuOr', norm=divnorm)
+sns.heatmap(tf.matmul(pls_true.Bx, model.Bx, transpose_a=True), ax=axes[0], cmap='PuOr', norm=divnorm)
+sns.heatmap(tf.matmul(pls_true.Wx, model.Wx, transpose_a=True), ax=axes[1], cmap='PuOr', norm=divnorm)
+sns.heatmap(tf.matmul(pls_true.Wy, model.Wy, transpose_a=True), ax=axes[2], cmap='PuOr', norm=divnorm)
 axes[0].set_title('B_x')
 axes[1].set_title('W_x')
 axes[2].set_title('W_y')
@@ -232,8 +296,8 @@ plt.show()
 # Examine matrix parameters
 divnorm=colors.TwoSlopeNorm(vcenter=0.)
 fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(4, 6))
-WxWxT = tf.matmul(Wx, Wx, transpose_b=True)
-WxWxT_true = tf.matmul(Wx_true, Wx_true, transpose_b=True)
+WxWxT = tf.matmul(model.Wx, model.Wx, transpose_b=True)
+WxWxT_true = tf.matmul(pls_true.Wx, pls_true.Wx, transpose_b=True)
 sns.heatmap(WxWxT, ax=axes[0, 0], cmap='PuOr', norm=divnorm)
 sns.heatmap(WxWxT_true, ax=axes[0, 1], cmap='PuOr', norm=divnorm)
 plt.show()
@@ -241,10 +305,10 @@ plt.show()
 # Examine matrix parameters
 divnorm=colors.TwoSlopeNorm(vmin=-5., vcenter=0., vmax=10)
 fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(4, 6))
-sns.heatmap(Bx_true, ax=axes[0, 0], cmap='PuOr', norm=divnorm)
-sns.heatmap(Bx, ax=axes[0, 1], cmap='PuOr', norm=divnorm)
-sns.heatmap(Wx_true, ax=axes[1, 0], cmap='PuOr', norm=divnorm)
-sns.heatmap(Wx, ax=axes[1, 1], cmap='PuOr', norm=divnorm)
-sns.heatmap(Wy_true, ax=axes[2, 0], cmap='PuOr', norm=divnorm)
-sns.heatmap(Wy, ax=axes[2, 1], cmap='PuOr', norm=divnorm)
+sns.heatmap(pls_true.Bx, ax=axes[0, 0], cmap='PuOr', norm=divnorm)
+sns.heatmap(model.Bx, ax=axes[0, 1], cmap='PuOr', norm=divnorm)
+sns.heatmap(pls_true.Wx, ax=axes[1, 0], cmap='PuOr', norm=divnorm)
+sns.heatmap(model.Wx, ax=axes[1, 1], cmap='PuOr', norm=divnorm)
+sns.heatmap(pls_true.Wy, ax=axes[2, 0], cmap='PuOr', norm=divnorm)
+sns.heatmap(model.Wy, ax=axes[2, 1], cmap='PuOr', norm=divnorm)
 plt.show()

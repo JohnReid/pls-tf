@@ -1,0 +1,34 @@
+#!/usr/bin/env python
+
+"""Symbolic matrix differentiation:
+    https://www.kannon.link/free/2019/10/30/symbolic-matrix-differentiation-with-sympy/"""
+
+from sympy import diff, symbols, simplify, latex, MatrixSymbol, MatMul, Transpose, Trace, Inverse
+
+
+def squared_frobenius_norm(expr):
+    return Trace(expr * Transpose(expr))
+
+
+# Matrix dimensions
+dy, dx, dzs, dzx = symbols('dy dx dzs dzx')
+
+# Matrices
+Wy = MatrixSymbol('W_y', dy, dzs)
+Wx = MatrixSymbol('W_x', dx, dzs)
+Bx = MatrixSymbol('B_x', dx, dzx)
+y = MatrixSymbol('y', dy, 1)
+x = MatrixSymbol('x', dx, 1)
+
+C = Inverse(MatMul(Bx, Transpose(Bx)) + MatMul(Wx, Transpose(Wx)))
+WyWxT = MatMul(Wy, Transpose(Wx))
+S = MatMul(WyWxT, MatMul(C, Transpose(WyWxT)))
+m = MatMul(WyWxT, MatMul(C, x))
+yprime = y - m
+quadratic_form = MatMul(Transpose(yprime), MatMul(Inverse(S), yprime))
+
+# Calculus
+derivative = diff(quadratic_form, Wx)
+print(derivative)
+print(latex(simplify(derivative)))
+# 2*X.T*(X*W - Y)

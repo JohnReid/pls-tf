@@ -24,11 +24,10 @@ divnorm = colors.TwoSlopeNorm(vmin=-5., vcenter=0., vmax=10)
 
 
 def WyWxBx_figure():
-    Uhat = pls.polar_decomposition(tf.transpose(pls_true.Wx), tf.transpose(model.Wx))
-    tf.transpose(pls_true.Wx) - tf.matmul(Uhat, model.Wx, transpose_b=True)
-    fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(12, 6))
-    sns.heatmap(pls_true.Wx, ax=axes[1, 0], cmap='PuOr', norm=divnorm)
-    sns.heatmap(tf.matmul(model.Wx, Uhat, transpose_b=True), ax=axes[1, 1], cmap='PuOr', norm=divnorm)
+    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(12, 6))
+    sns.heatmap(pls.diff_transforms_modulo_orthonormal(pls_true.Wy, model.Wy), ax=axes[0], cmap='PuOr', norm=divnorm)
+    sns.heatmap(pls.diff_transforms_modulo_orthonormal(pls_true.Wx, model.Wx), ax=axes[1], cmap='PuOr', norm=divnorm)
+    sns.heatmap(pls.diff_transforms_modulo_orthonormal(pls_true.Bx, model.Bx), ax=axes[2], cmap='PuOr', norm=divnorm)
     return fig
 
 
@@ -109,8 +108,8 @@ trainable_parameters = dict(
     #
     # Maps from latent spaces
     Wy=tf.Variable(pls._std_normal.sample([pls_true.dy, pls_true.dzs])),
-    # Wx=tf.Variable(pls._std_normal.sample([pls_true.dx, pls_true.dzs])),
-    # Bx=tf.Variable(pls._std_normal.sample([pls_true.dx, pls_true.dzx])),
+    Wx=tf.Variable(pls._std_normal.sample([pls_true.dx, pls_true.dzs])),
+    Bx=tf.Variable(pls._std_normal.sample([pls_true.dx, pls_true.dzx])),
     #
     # Noise
     # sigma=tf.Variable(tfp.distributions.LogNormal(loc=0, scale=1).sample(), name='sigma'),
@@ -169,7 +168,7 @@ for iteration in range(iterations):
         tf.summary.scalar('joint/lp_sum', lp_sum, step=iteration)
         tf.summary.scalar('joint/sigma_prior', sigma_prior, step=iteration)
         tf.summary.scalar('params/sigma-ratio', model.sigma / pls_true.sigma, step=iteration)
-        # log_figure('Transforms', WyWxBx_figure(), iteration)
+        log_figure('Transforms', WyWxBx_figure(), iteration)
         # log_figure('Transform singular values', singular_value_figure(), iteration)
         log_figure('Means', means_figure(), iteration)
         summary_writer.flush()

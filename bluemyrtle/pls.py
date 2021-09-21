@@ -5,6 +5,17 @@ _std_normal = tfp.distributions.Normal(loc=0, scale=1.)
 la = tf.linalg
 
 
+def diff_transforms_modulo_orthonormal(A, B):
+    """The difference between two transforms, A and B, modulo an arbitrary orthogonal transformation."""
+    A, B = align_transforms_modulo_orthonormal(A, B)
+    return B - A
+
+
+def align_transforms_modulo_orthonormal(A, B):
+    """Align two transforms, A and B, modulo an arbitrary orthogonal transformation."""
+    return A, tf.matmul(B, polar_decomposition(tf.transpose(A), tf.transpose(B)), transpose_b=True)
+
+
 def polar_decomposition(A, B):
     """Find a unitary matrix that maps B as close to A as possible (in the
     least squares sense).

@@ -36,10 +36,14 @@ Marginalising $z$ gives
 \end{eqnarray}
 Conditioning on $x$ gives
 \begin{eqnarray}
-  p(y|x) &=& \mathcal{N}(y|\mu_y + W_y W_x^T C (x - \mu_x),
-                           W_y W_y^T - W_y W_x^T C W_x W_y^T)
+  p(y|x) &=& \mathcal{N}(y|m_{y|x}, S_{y|x})
 \end{eqnarray}
-where $C={(B_x B_x^T + W_x W_x^T)}^{-1}$.
+where
+\begin{eqnarray}
+  C &=& {(B_x B_x^T + W_x W_x^T + \sigma^2 I)}^{-1} \\
+  m_{y|x} &=& \mu_y + W_y W_x^T C (x - \mu_x) \\
+  S_{y|x} &=& \sigma^2 I + W_y W_y^T - W_y W_x^T C W_x W_y^T
+\end{eqnarray}
 
 Suppose we now obtain $N$ independent observations from the model
 \begin{eqnarray}

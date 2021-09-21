@@ -1,3 +1,10 @@
+import math
+import tensorflow as tf
+import tensorflow_probability as tfp
+_std_normal = tfp.distributions.Normal(loc=0, scale=1.)
+la = tf.linalg
+
+
 def polar_decomposition(A, B):
     """Find a unitary matrix that maps B as close to A as possible (in the
     least squares sense).
@@ -48,6 +55,20 @@ class PLS:
             sigma=tfp.distributions.LogNormal(loc=0, scale=1).sample())
 
     @property
+    def parameters(self):
+        """The parameters of the model."""
+        return dict(
+            # Means
+            mu_y=self.mu_y,
+            mu_x=self.mu_x,
+            # Maps from latent spaces
+            Wy=self.Wy,
+            Wx=self.Wx,
+            Bx=self.Bx,
+            # Noise
+            sigma=self.sigma)
+
+    @property
     def dy(self):
         """Size of y."""
         return self.Wy.shape[-2]
@@ -94,12 +115,10 @@ class PLS:
         BxBxT_WxWxT_chol = la.cholesky(BxBxT + WxWxT + sigma2_Ix)
         WxWyT_term = la.triangular_solve(BxBxT_WxWxT_chol, WxWyT)
         x_mux_term = tf.squeeze(la.triangular_solve(BxBxT_WxWxT_chol,
-                                                    tf.expand_dims(x_true - self.mu_x, axis=-1)),
+                                                    tf.expand_dims(x - self.mu_x, axis=-1)),
                                 axis=-1)
         # Create posterior
         likelihood_loc = self.mu_y + la.matvec(WxWyT_term, x_mux_term, transpose_a=True)
         likelihood_cov = WyWyT + sigma2_Iy - la.matmul(WxWyT_term, WxWyT_term, transpose_a=True)
         return tfp.distributions.MultivariateNormalTriL(loc=likelihood_loc,
                                                         scale_tril=la.cholesky(likelihood_cov))
-
-

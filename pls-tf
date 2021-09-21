@@ -4,23 +4,20 @@
 
 from pathlib import Path
 import io
-import math
 import datetime
-import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 import tensorflow_probability as tfp
 import matplotlib.pyplot as plt
 from matplotlib import colors
 import seaborn as sns
-import pls
+from bluemyrtle import pls
 import importlib
 importlib.reload(pls)
 la = tf.linalg
 tf.__version__
 tfp.__version__
 tf.random.set_seed(37)
-_std_normal = tfp.distributions.Normal(loc=0, scale=1.)
 plt.ion()
 plt.close('all')
 divnorm = colors.TwoSlopeNorm(vmin=-5., vcenter=0., vmax=10)
@@ -103,32 +100,28 @@ tf.math.reduce_std(x_true, axis=0)
 
 # Parameterise
 #
-model = pls.PLS(
+parameters = pls_true.parameters
+trainable_parameters = dict(
+    #
     # Means
-    mu_x = tf.Variable(tf.reduce_mean(x_true, axis=0)),
-    mu_y = tf.Variable(tf.reduce_mean(y_true, axis=0)),
-    # Data means
+    # mu_x=tf.Variable(tf.reduce_mean(x_true, axis=0)),
+    # mu_y=tf.Variable(tf.reduce_mean(y_true, axis=0)),
+    #
     # Maps from latent spaces
-    Wy = tf.Variable(_std_normal.sample([pls_true.dy, pls_true.dzs])),
-    Wx = tf.Variable(_std_normal.sample([pls_true.dx, pls_true.dzs])),
-    Bx = tf.Variable(_std_normal.sample([pls_true.dx, pls_true.dzx])),
+    Wy=tf.Variable(pls._std_normal.sample([pls_true.dy, pls_true.dzs])),
+    # Wx=tf.Variable(pls._std_normal.sample([pls_true.dx, pls_true.dzs])),
+    # Bx=tf.Variable(pls._std_normal.sample([pls_true.dx, pls_true.dzx])),
+    #
     # Noise
-    # sigma = tf.Variable(tf.abs(_std_normal.sample([1])), name='sigma')
-    sigma = tf.Variable(pls_true.sigma, name='sigma'))
-# initialise based on cross-covariance
-# Keep all parameters together
-trainable_params = [
-    # model.sigma,
-    model.Bx,
-    model.Wx,
-    model.Wy,
-    model.mu_x,
-    model.mu_y]
+    # sigma=tf.Variable(tfp.distributions.LogNormal(loc=0, scale=1).sample(), name='sigma'),
+)
+parameters.update(**trainable_parameters)
+model = pls.PLS(**parameters)
 
 # Training loop
 #
 # Instantiate an optimizer.
-initial_learning_rate = 1e-2
+initial_learning_rate = 1e-1
 lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
     initial_learning_rate,
     decay_steps=100,
@@ -144,8 +137,7 @@ log_dir = Path('logs') / current_time
 summary_writer = tf.summary.create_file_writer(str(log_dir))
 
 
-
-optimizer = keras.optimizers.SGD(learning_rate=lr_schedule)
+optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
 iterations = 50
 for iteration in range(iterations):
     # Open a GradientTape to record the operations run
@@ -165,19 +157,20 @@ for iteration in range(iterations):
 
     # Use the gradient tape to automatically retrieve
     # the gradients of the trainable variables with respect to the loss.
-    grads = tape.gradient(loss, trainable_params)
+    grads = tape.gradient(loss, trainable_parameters.values())
 
     # Run one step of gradient descent by updating
     # the value of the variables to minimize the loss.
-    optimizer.apply_gradients(zip(grads, trainable_params))
+    optimizer.apply_gradients(zip(grads, trainable_parameters.values()))
 
     print("Training joint probability at iteration %d: %.4f" % (iteration, float(joint)))
     with summary_writer.as_default():
         tf.summary.scalar('joint/total', joint, step=iteration)
         tf.summary.scalar('joint/lp_sum', lp_sum, step=iteration)
         tf.summary.scalar('joint/sigma_prior', sigma_prior, step=iteration)
-        log_figure('Transforms', WyWxBx_figure(), iteration)
-        log_figure('Transform singular values', singular_value_figure(), iteration)
+        tf.summary.scalar('params/sigma-ratio', model.sigma / pls_true.sigma, step=iteration)
+        # log_figure('Transforms', WyWxBx_figure(), iteration)
+        # log_figure('Transform singular values', singular_value_figure(), iteration)
         log_figure('Means', means_figure(), iteration)
         summary_writer.flush()
 
@@ -189,19 +182,19 @@ sns.heatmap(tf.matmul(pls_true.Wy, model.Wy, transpose_a=True), ax=axes[2], cmap
 axes[0].set_title('B_x')
 axes[1].set_title('W_x')
 axes[2].set_title('W_y')
-plt.show()
+# plt.show()
 
 # Examine matrix parameters
-divnorm=colors.TwoSlopeNorm(vcenter=0.)
+divnorm = colors.TwoSlopeNorm(vcenter=0.)
 fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(4, 6))
 WxWxT = tf.matmul(model.Wx, model.Wx, transpose_b=True)
 WxWxT_true = tf.matmul(pls_true.Wx, pls_true.Wx, transpose_b=True)
 sns.heatmap(WxWxT, ax=axes[0, 0], cmap='PuOr', norm=divnorm)
 sns.heatmap(WxWxT_true, ax=axes[0, 1], cmap='PuOr', norm=divnorm)
-plt.show()
+# plt.show()
 
 # Examine matrix parameters
-divnorm=colors.TwoSlopeNorm(vmin=-5., vcenter=0., vmax=10)
+divnorm = colors.TwoSlopeNorm(vmin=-5., vcenter=0., vmax=10)
 fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(4, 6))
 sns.heatmap(pls_true.Bx, ax=axes[0, 0], cmap='PuOr', norm=divnorm)
 sns.heatmap(model.Bx, ax=axes[0, 1], cmap='PuOr', norm=divnorm)
@@ -209,4 +202,4 @@ sns.heatmap(pls_true.Wx, ax=axes[1, 0], cmap='PuOr', norm=divnorm)
 sns.heatmap(model.Wx, ax=axes[1, 1], cmap='PuOr', norm=divnorm)
 sns.heatmap(pls_true.Wy, ax=axes[2, 0], cmap='PuOr', norm=divnorm)
 sns.heatmap(model.Wy, ax=axes[2, 1], cmap='PuOr', norm=divnorm)
-plt.show()
+# plt.show()

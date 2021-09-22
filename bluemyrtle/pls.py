@@ -13,7 +13,7 @@ def diff_transforms_modulo_orthonormal(A, B):
 
 def align_transforms_modulo_orthonormal(A, B):
     """Align two transforms, A and B, modulo an arbitrary orthogonal transformation."""
-    return A, tf.matmul(B, polar_decomposition(tf.transpose(A), tf.transpose(B)), transpose_b=True)
+    return A, tf.matmul(polar_decomposition(A, B), B)
 
 
 def polar_decomposition(A, B):

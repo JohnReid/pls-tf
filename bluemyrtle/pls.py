@@ -65,6 +65,16 @@ class PLS:
             Bx=_std_normal.sample([dx, dzx]) / math.sqrt(dzx) / math.sqrt(2),
             sigma=tfp.distributions.LogNormal(loc=0, scale=1).sample())
 
+    def zs_alignment(self, Wy_other, Wx_other):
+        """Find an orthonormal matrix U, that rotates the shared z_s space such that
+        Wx_other is as close to self.Wx and similarly with W_y.
+
+        Wx_other @ U should be close to self.W
+        """
+        s, V, W = la.svd(la.matmul(Wy_other, self.Wy, transpose_a=True)
+                         + la.matmul(Wx_other, self.Wx, transpose_a=True))
+        return la.matmul(V, W, transpose_b=True)
+
     @property
     def parameters(self):
         """The parameters of the model."""

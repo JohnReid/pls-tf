@@ -12,7 +12,7 @@ def model():
     return pls.PLS.random_init(dx=11, dy=5, dzs=5, dzx=13)
 
 
-def test_zs_alignment(model):
+def test_Us_alignment(model):
     U = tf.constant(st.ortho_group.rvs(model.dzs), dtype=model.Wy.dtype)
     Wx_other = tf.matmul(model.Wx, U)
     Wy_other = tf.matmul(model.Wy, U)

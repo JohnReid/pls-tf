@@ -2,3 +2,4 @@
 logs
 *.egg-info
 docs/pls.out
+output/

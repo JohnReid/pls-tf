@@ -65,11 +65,11 @@ class PLS:
             Bx=_std_normal.sample([dx, dzx]) / math.sqrt(dzx) / math.sqrt(2),
             sigma=tfp.distributions.LogNormal(loc=0, scale=1).sample())
 
-    def zs_alignment(self, Wy_other, Wx_other):
+    def Us_alignment(self, Wy_other, Wx_other):
         """Find an orthonormal matrix U, that rotates the shared z_s space such that
-        Wx_other is as close to self.Wx and similarly with W_y.
+        Wx_other is as close to self.Wx and similarly with Wy.
 
-        Wx_other @ U should be close to self.W
+        Wx_other @ U should be close to self.Wx
         """
         s, V, W = la.svd(la.matmul(Wy_other, self.Wy, transpose_a=True)
                          + la.matmul(Wx_other, self.Wx, transpose_a=True))
@@ -123,6 +123,22 @@ class PLS:
         return tfp.distributions.MultivariateNormalDiag(
             loc=self.mu_x + la.matvec(self.Wx, zs) + la.matvec(self.Bx, zx),
             scale_identity_multiplier=self.sigma)
+
+    @property
+    def mu(self):
+        return tf.concat((self.mu_y, self.mu_x), axis=-1)
+
+    @property
+    def W(self):
+        col1 = tf.concat((self.Wy, self.Wx), axis=-2)
+        col2 = tf.concat((tf.zeros((self.dy, self.dzx)), self.Bx), axis=-2)
+        return tf.concat((col1, col2), axis=-1)
+
+    def p_xy(self):
+        W = self.W
+        WWT = tf.matmul(W, W, transpose_b=True)
+        sigma2_I = self.sigma**2 * tf.eye(self.dy + self.dx)
+        return tfp.distributions.MultivariateNormalTriL(loc=self.mu, scale_tril=la.cholesky(WWT + sigma2_I))
 
     def p_y_given_x(self, x):
         sigma2_Ix = self.sigma**2 * tf.eye(self.dx)

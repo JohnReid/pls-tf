@@ -144,10 +144,12 @@ trainable_parameters = dict(
     sigma=tf.Variable(tfp.distributions.LogNormal(loc=0, scale=1).sample(), name='sigma'),
 )
 if 'SVD' == args.init_W:
-    yTx = la.matmul(y_true, x_true, transpose_a=True)  # Can use SVD to initialise W_y and W_x
-    s, u, v = la.svd(yTx)
-    trainable_parameters['Wy'] = tf.Variable(u[:, :pls_true.dzs])
-    trainable_parameters['Wx'] = tf.Variable(v[:, :pls_true.dzs])
+    # Can use SVD to initialise W_y and W_x
+    cov_y_x = la.matmul(y_true, x_true, transpose_a=True) / (args.N - 1)
+    s, u, v = la.svd(cov_y_x)
+    sqrt_s = la.diag(tf.sqrt(s))
+    trainable_parameters['Wy'] = tf.Variable(tf.matmul(u, sqrt_s)[:, :pls_true.dzs])
+    trainable_parameters['Wx'] = tf.Variable(tf.matmul(v, sqrt_s)[:, :pls_true.dzs])
 parameters.update(**trainable_parameters)
 model = pls.PLS(**parameters)
 

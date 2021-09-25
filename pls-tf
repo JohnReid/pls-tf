@@ -48,6 +48,10 @@ def transformed_parameters():
         pls.diff_transforms_modulo_orthonormal(pls_true.Bx, model.Bx))
 
 
+def centre_data(x):
+    return x - tf.reduce_mean(x, axis=-2)
+
+
 def WyWxBx_figure():
     divnorm = colors.TwoSlopeNorm(vcenter=0)
     Wy_trans, Wx_trans, Bx_trans = transformed_parameters()
@@ -132,8 +136,8 @@ parameters = pls_true.parameters
 trainable_parameters = dict(
     #
     # Means
-    mu_x=tf.Variable(tf.reduce_mean(x_true, axis=0)),
-    mu_y=tf.Variable(tf.reduce_mean(y_true, axis=0)),
+    mu_x=tf.Variable(tf.reduce_mean(x_true, axis=-2)),
+    mu_y=tf.Variable(tf.reduce_mean(y_true, axis=-2)),
     #
     # Maps from latent spaces
     Wy=tf.Variable(pls._std_normal.sample([pls_true.dy, pls_true.dzs])),
@@ -145,7 +149,7 @@ trainable_parameters = dict(
 )
 if 'SVD' == args.init_W:
     # Can use SVD to initialise W_y and W_x
-    cov_y_x = la.matmul(y_true, x_true, transpose_a=True) / (args.N - 1)
+    cov_y_x = la.matmul(centre_data(y_true), centre_data(x_true), transpose_a=True) / (args.N - 1)
     s, u, v = la.svd(cov_y_x)
     sqrt_s = la.diag(tf.sqrt(s))
     trainable_parameters['Wy'] = tf.Variable(tf.matmul(u, sqrt_s)[:, :pls_true.dzs])

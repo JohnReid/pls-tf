@@ -32,6 +32,7 @@ Marginalising $z$ gives
 \begin{eqnarray}
   p(v|W, \mu, \sigma)
   &=& \int \mathcal{N}(v|W z + \mu, \sigma^2 I) \mathcal{N}(z|0, I)\,dz \\
+  \label{eqn:joint_xy}
   &=& \mathcal{N}(v|\mu, W W^T + \sigma^2 I)
 \end{eqnarray}
 Conditioning on $x$ gives
@@ -49,5 +50,24 @@ Suppose we now obtain $N$ independent observations from the model
 \begin{eqnarray}
   v_n = (y_n; x_n),\quad 1 \le n \le N.
 \end{eqnarray}
-We wish to estimate $W, \mu \text{ and } \sigma$.
+We wish to estimate $W, \mu \text{ and } \sigma$. We can do this by maximising the likelihood of the data
+$v = x, y$~(\ref{eqn:joint_xy}) using stochastic gradient descent.
+
+One way to validate that our implementation works is to sample data from the model and compare the estimated
+parameters to those that we used to sample with. Suppose we sample $v_n$ from our model parameterised by
+$\sigma^*, \mu^*_x, \mu^*_y, W^*_y, W^*_x, B^*_x$.
+We can estimate $\hat{\sigma}, \hat{\mu}_x, \hat{\mu}_y, \hat{W}_y, \hat{W}_x, \hat{B}_x$ that maximise
+\begin{eqnarray}
+  \label{eqn:log_joint}
+  \sum_n \log p(v|\sigma, \mu, W_y, W_x, B_x)
+\end{eqnarray}
+We would love to compare the estimated parameters to the underlying parameters but unfortunately (\ref{eqn:log_joint})
+is invariant to orthonormal transformations of the $W_y, W_x, B_x$. That is
+\begin{eqnarray}
+  \sum_n \log p(v_n|\sigma, \mu, W_y U_s, W_x U_s, B_x U_x)
+  &=&
+  \sum_n \log p(v_n|\sigma, \mu, W_y, W_x, B_x)
+\end{eqnarray}
+for any orthonormal square matrices (of suitable dimension) $U_s, U_x$. We can see this as $W$ only appears
+as $W W^T$ in the likelihood and $W W^T = W U U^T W^T$ for any orthonormal $U$.
 \end{document}
